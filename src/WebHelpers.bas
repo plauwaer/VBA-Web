@@ -1,6 +1,6 @@
 Attribute VB_Name = "WebHelpers"
 ''
-' WebHelpers v4.0.20
+' WebHelpers v4.0.22
 ' (c) Tim Hall - https://github.com/VBA-tools/VBA-Web
 '
 ' Contains general-purpose helpers that are used throughout VBA-Web. Includes:
@@ -247,7 +247,7 @@ Private Declare Function web_fread Lib "libc.dylib" Alias "fread" (ByVal outStr 
 Private Declare Function web_feof Lib "libc.dylib" Alias "feof" (ByVal File As Long) As Long
 #End If
 
-Public Const WebUserAgent As String = "VBA-Web v4.0.20 (https://github.com/VBA-tools/VBA-Web)"
+Public Const WebUserAgent As String = "VBA-Web v4.0.22 (https://github.com/VBA-tools/VBA-Web)"
 
 ' @internal
 Public Type ShellResult
@@ -343,6 +343,23 @@ Public Enum WebFormat
     FormUrlEncoded = 2
     Xml = 3
     Custom = 9
+End Enum
+
+''
+' @property UrlEncodingMode
+' @param StrictUrlEncoding RFC 3986, ALPHA / DIGIT / "-" / "." / "_" / "~"
+' @param FormUrlEncoding ALPHA / DIGIT / "-" / "." / "_" / "*", (space) -> "+", &...; UTF-8 encoding
+' @param QueryUrlEncoding Subset of strict and form that should be suitable for non-form-urlencoded query strings
+'   ALPHA / DIGIT / "-" / "." / "_"
+' @param CookieUrlEncoding strict / "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "^" / "`" / "|"
+' @param PathUrlEncoding strict / "!" / "$" / "&" / "'" / "(" / ")" / "*" / "+" / "," / ";" / "=" / ":" / "@"
+''
+Public Enum UrlEncodingMode
+    StrictUrlEncoding
+    FormUrlEncoding
+    QueryUrlEncoding
+    CookieUrlEncoding
+    PathUrlEncoding
 End Enum
 
 ''
@@ -611,7 +628,7 @@ End Function
 ' @param {Dictionary|Collection|Variant} Obj Value to convert to Url-Encoded string
 ' @return {String} UrlEncoded string (e.g. a=123&b=456&...)
 ''
-Public Function ConvertToUrlEncoded(Obj As Variant) As String
+Public Function ConvertToUrlEncoded(Obj As Variant, Optional EncodingMode As UrlEncodingMode = UrlEncodingMode.FormUrlEncoding) As String
     Dim web_Encoded As String
 
     If TypeOf Obj Is Collection Then
@@ -619,14 +636,14 @@ Public Function ConvertToUrlEncoded(Obj As Variant) As String
 
         For Each web_KeyValue In Obj
             If VBA.Len(web_Encoded) > 0 Then: web_Encoded = web_Encoded & "&"
-            web_Encoded = web_Encoded & web_GetUrlEncodedKeyValue(web_KeyValue("Key"), web_KeyValue("Value"))
+            web_Encoded = web_Encoded & web_GetUrlEncodedKeyValue(web_KeyValue("Key"), web_KeyValue("Value"), EncodingMode)
         Next web_KeyValue
     Else
         Dim web_Key As Variant
 
         For Each web_Key In Obj.Keys()
             If Len(web_Encoded) > 0 Then: web_Encoded = web_Encoded & "&"
-            web_Encoded = web_Encoded & web_GetUrlEncodedKeyValue(web_Key, Obj(web_Key))
+            web_Encoded = web_Encoded & web_GetUrlEncodedKeyValue(web_Key, Obj(web_Key), EncodingMode)
         Next web_Key
     End If
 
@@ -812,16 +829,39 @@ End Function
 
 ''
 ' Encode string for URLs
-' Reference: http://www.blooberry.com/indexdot/html/topics/urlencoding.htm
+'
+' See https://github.com/VBA-tools/VBA-Web/wiki/Url-Encoding for details
+'
+' References:
+' - RFC 3986, https://tools.ietf.org/html/rfc3986
+' - form-urlencoded encoding algorithm,
+'   https://www.w3.org/TR/html5/forms.html#application/x-www-form-urlencoded-encoding-algorithm
+' - RFC 6265 (Cookies), https://tools.ietf.org/html/rfc6265
 '
 ' @method UrlEncode
 ' @param {Variant} Text Text to encode
 ' @param {Boolean} [SpaceAsPlus = False] `%20` if `False` / `+` if `True`
+'   DEPRECATED Use EncodingMode:=FormUrlEncoding
 ' @param {Boolean} [EncodeUnsafe = True] Encode characters that could be misunderstood within URLs.
 '   (``SPACE, ", <, >, #, %, {, }, |, \, ^, ~, `, [, ]``)
+'   DEPRECATED This was based on an outdated URI spec and has since been removed.
+'     EncodingMode:=CookieUrlEncoding is the closest approximation of this behavior
+' @param {UrlEncodingMode} [EncodingMode = StrictUrlEncoding]
 ' @return {String} Encoded string
 ''
-Public Function UrlEncode(Text As Variant, Optional SpaceAsPlus As Boolean = False, Optional EncodeUnsafe As Boolean = True) As String
+Public Function UrlEncode(Text As Variant, _
+    Optional SpaceAsPlus As Boolean = False, Optional EncodeUnsafe As Boolean = True, _
+    Optional EncodingMode As UrlEncodingMode = UrlEncodingMode.StrictUrlEncoding) As String
+    
+    If SpaceAsPlus = True Then
+        LogWarning "SpaceAsPlus is deprecated and will be removed in VBA-Web v5. " & _
+            "Use EncodingMode:=FormUrlEncoding instead", "WebHelpers.UrlEncode"
+    End If
+    If EncodeUnsafe = False Then
+        LogWarning "EncodeUnsafe has been removed as it was based on an outdated url encoding specification. " & _
+            "Use EncodingMode:=CookieUrlEncoding to approximate this behavior", "WebHelpers.UrlEncode"
+    End If
+    
     Dim web_UrlVal As String
     Dim web_StringLen As Long
 
@@ -836,8 +876,14 @@ Public Function UrlEncode(Text As Variant, Optional SpaceAsPlus As Boolean = Fal
         Dim web_Space As String
         ReDim web_Result(web_StringLen)
 
+        ' StrictUrlEncoding - ALPHA / DIGIT / "-" / "." / "_" / "~"
+        ' FormUrlEncoding   - ALPHA / DIGIT / "-" / "." / "_" / "*" / (space) -> "+"
+        ' QueryUrlEncoding  - ALPHA / DIGIT / "-" / "." / "_"
+        ' CookieUrlEncoding - strict / "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "^" / "`" / "|"
+        ' PathUrlEncoding   - strict / "!" / "$" / "&" / "'" / "(" / ")" / "*" / "+" / "," / ";" / "=" / ":" / "@"
+
         ' Set space value
-        If SpaceAsPlus Then
+        If SpaceAsPlus Or EncodingMode = UrlEncodingMode.FormUrlEncoding Then
             web_Space = "+"
         Else
             web_Space = "%20"
@@ -850,20 +896,86 @@ Public Function UrlEncode(Text As Variant, Optional SpaceAsPlus As Boolean = Fal
             web_CharCode = VBA.Asc(web_Char)
 
             Select Case web_CharCode
-            Case 36, 38, 43, 44, 47, 58, 59, 61, 63, 64
-                ' Reserved characters
-                web_Result(web_i) = "%" & VBA.Hex(web_CharCode)
-            Case 32
-                web_Result(web_i) = web_Space
-            Case 34, 35, 37, 60, 62, 91 To 94, 96, 123 To 126
-                ' Unsafe characters
-                If EncodeUnsafe Then
-                    web_Result(web_i) = "%" & VBA.Hex(web_CharCode)
-                Else
+                Case 65 To 90, 97 To 122
+                    ' ALPHA
                     web_Result(web_i) = web_Char
-                End If
-            Case Else
-                web_Result(web_i) = web_Char
+                Case 48 To 57
+                    ' DIGIT
+                    web_Result(web_i) = web_Char
+                Case 45, 46, 95
+                    ' "-" / "." / "_"
+                    web_Result(web_i) = web_Char
+                
+                Case 32
+                    ' (space)
+                    ' FormUrlEncoding -> "+"
+                    ' Else -> "%20"
+                    web_Result(web_i) = web_Space
+                
+                Case 33, 36, 38, 39, 43
+                    ' "!" / "$" / "&" / "'" / "+"
+                    ' PathUrlEncoding, CookieUrlEncoding -> Unencoded
+                    ' Else -> Percent-encoded
+                    If EncodingMode = UrlEncodingMode.PathUrlEncoding Or EncodingMode = UrlEncodingMode.CookieUrlEncoding Then
+                        web_Result(web_i) = web_Char
+                    Else
+                        web_Result(web_i) = "%" & VBA.Hex(web_CharCode)
+                    End If
+                Case 35, 94, 96, 124
+                    ' "#" / "^" / "`" / "|"
+                    ' CookieUrlEncoding -> Unencoded
+                    ' Else -> Percent-encoded
+                    If EncodingMode = UrlEncodingMode.CookieUrlEncoding Then
+                        web_Result(web_i) = web_Char
+                    Else
+                        web_Result(web_i) = "%" & VBA.Hex(web_CharCode)
+                    End If
+                Case 40, 41, 44, 58, 59, 61, 64
+                    ' "(" / ")" / "," / ":" / ";" / "=" / "@"
+                    ' PathUrlEncoding -> Unencoded
+                    ' Else -> Percent-encoded
+                    If EncodingMode = UrlEncodingMode.PathUrlEncoding Then
+                        web_Result(web_i) = web_Char
+                    Else
+                        web_Result(web_i) = "%" & VBA.Hex(web_CharCode)
+                    End If
+                Case 42
+                    ' "*"
+                    ' FormUrlEncoding, PathUrlEncoding, CookieUrlEncoding -> "*"
+                    ' Else -> "%2A"
+                    If EncodingMode = UrlEncodingMode.FormUrlEncoding _
+                        Or EncodingMode = UrlEncodingMode.PathUrlEncoding _
+                        Or EncodingMode = UrlEncodingMode.CookieUrlEncoding Then
+
+                        web_Result(web_i) = web_Char
+                    Else
+                        web_Result(web_i) = "%" & VBA.Hex(web_CharCode)
+                    End If
+                Case 126
+                    ' "~"
+                    ' FormUrlEncoding, QueryUrlEncoding -> "%7E"
+                    ' Else -> "~"
+                    If EncodingMode = UrlEncodingMode.FormUrlEncoding Or EncodingMode = UrlEncodingMode.QueryUrlEncoding Then
+                        web_Result(web_i) = "%7E"
+                    Else
+                        web_Result(web_i) = web_Char
+                    End If
+                Case 0 To 15
+                    web_Result(web_i) = "%0" & VBA.Hex(web_CharCode)
+                Case Else
+                    web_Result(web_i) = "%" & VBA.Hex(web_CharCode)
+                    
+                ' TODO For non-ASCII characters,
+                '
+                ' FormUrlEncoded:
+                '
+                ' Replace the character by a string consisting of a U+0026 AMPERSAND character (&), a "#" (U+0023) character,
+                ' one or more ASCII digits representing the Unicode code point of the character in base ten, and finally a ";" (U+003B) character.
+                '
+                ' Else:
+                '
+                ' Encode to sequence of 2 or 3 bytes in UTF-8, then percent encode
+                ' Reference Implementation: https://www.w3.org/International/URLUTF8Encoder.java
             End Select
         Next web_i
         UrlEncode = VBA.Join$(web_Result, "")
@@ -876,10 +988,14 @@ End Function
 ' @method UrlDecode
 ' @param {String} Encoded Text to decode
 ' @param {Boolean} [PlusAsSpace = True] Decode plus as space
-'   DEPRECATED: Default = True to align with existing behavior, will be changed to False in v5
+'   DEPRECATED Use EncodingMode:=FormUrlEncoding Or QueryUrlEncoding
+' @param {UrlEncodingMode} [EncodingMode = StrictUrlEncoding]
 ' @return {String} Decoded string
 ''
-Public Function UrlDecode(Encoded As String, Optional PlusAsSpace As Boolean = True) As String
+Public Function UrlDecode(Encoded As String, _
+    Optional PlusAsSpace As Boolean = True, _
+    Optional EncodingMode As UrlEncodingMode = UrlEncodingMode.StrictUrlEncoding) As String
+
     Dim web_StringLen As Long
     web_StringLen = VBA.Len(Encoded)
 
@@ -891,7 +1007,11 @@ Public Function UrlDecode(Encoded As String, Optional PlusAsSpace As Boolean = T
         For web_i = 1 To web_StringLen
             web_Temp = VBA.Mid$(Encoded, web_i, 1)
 
-            If web_Temp = "+" And PlusAsSpace Then
+            If web_Temp = "+" And _
+                (PlusAsSpace _
+                 Or EncodingMode = UrlEncodingMode.FormUrlEncoding _
+                 Or EncodingMode = UrlEncodingMode.QueryUrlEncoding) Then
+                
                 web_Temp = " "
             ElseIf web_Temp = "%" And web_StringLen >= web_i + 2 Then
                 web_Temp = VBA.Mid$(Encoded, web_i + 1, 2)
@@ -899,6 +1019,8 @@ Public Function UrlDecode(Encoded As String, Optional PlusAsSpace As Boolean = T
 
                 web_i = web_i + 2
             End If
+            
+            ' TODO Handle non-ASCII characters
 
             web_Result = web_Result & web_Temp
         Next web_i
@@ -1762,7 +1884,7 @@ End Function
 ' ============================================= '
 
 ' Helper for url-encoded to create key=value pair
-Private Function web_GetUrlEncodedKeyValue(Key As Variant, Value As Variant) As String
+Private Function web_GetUrlEncodedKeyValue(Key As Variant, Value As Variant, Optional EncodingMode As UrlEncodingMode = UrlEncodingMode.FormUrlEncoding) As String
     Select Case VBA.VarType(Value)
     Case VBA.vbBoolean
         ' Convert boolean to lowercase
@@ -1780,7 +1902,7 @@ Private Function web_GetUrlEncodedKeyValue(Key As Variant, Value As Variant) As 
     End Select
 
     ' Url encode key and value (using + for spaces)
-    web_GetUrlEncodedKeyValue = UrlEncode(Key, SpaceAsPlus:=True) & "=" & UrlEncode(Value, SpaceAsPlus:=True)
+    web_GetUrlEncodedKeyValue = UrlEncode(Key, EncodingMode:=EncodingMode) & "=" & UrlEncode(Value, EncodingMode:=EncodingMode)
 End Function
 
 ''

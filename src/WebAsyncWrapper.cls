@@ -8,7 +8,7 @@ Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = True
 ''
-' WebAsyncWrapper v4.0.20
+' WebAsyncWrapper v4.0.22
 ' (c) Tim Hall - https://github.com/VBA-tools/VBA-Web
 '
 ' Wrapper WebClient and WebRequest that enables callback-style async requests
@@ -129,7 +129,7 @@ End Function
 '
 ' @internal
 ' @method PrepareAndExecuteRequest
-' @param {RestRequest} Request
+' @param {WebRequest} Request
 ' @param {String} Callback
 ' @param {Variant} [CallbackArgs]
 ''
@@ -181,8 +181,8 @@ Private Sub web_RunCallback(web_Response As WebResponse)
     ' Run callback function (needs to be a public function),
     ' passing in response and any defined callback arguments
     '
-    ' callback({RestResponse})
-    ' OR callback({RestResponse}, {Variant})
+    ' callback({WebResponse})
+    ' OR callback({WebResponse}, {Variant})
     '
     ' Example:
     ' Public Function Callback(Response As WebResponse, Args As Variant)

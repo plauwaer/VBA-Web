@@ -43,7 +43,7 @@ Public Function Specs() As SpecSuite
         .Expect(Auth.GetRequestUrl(Client, Request)).ToEqual "http://localhost:3000/a/b/c"
     End With
     
-    With Specs.It("should property format request parameters")
+    With Specs.It("should properly format request parameters")
         Set Request = New WebRequest
         Request.Resource = "resource"
         Request.AddQuerystringParam "a", True
@@ -60,7 +60,7 @@ Public Function Specs() As SpecSuite
         Request.AddQuerystringParam "c", "Howdy!"
         Request.AddQuerystringParam "d", 789
         
-        .Expect(Auth.GetRequestParameters(Client, Request)).ToEqual "a=123&b=456&c=Howdy!&d=789"
+        .Expect(Auth.GetRequestParameters(Client, Request)).ToEqual "a=123&b=456&c=Howdy%21&d=789"
     End With
     
     With Specs.It("should handle spaces in parameters correctly")
@@ -71,6 +71,16 @@ Public Function Specs() As SpecSuite
         
         .Expect(Auth.GetRequestParameters(Client, Request)).ToEqual "a=a%20b"
         .Expect(Client.GetFullUrl(Request)).ToEqual "http://localhost:3000/testing?a=a+b"
+    End With
+    
+    With Specs.It("should sort querystring parameters")
+        Client.BaseUrl = "HTTP://localhost:3000/testing"
+        Set Request = New WebRequest
+        Request.Resource = "?c=Howdy!&b=456"
+        Request.AddQuerystringParam "d", 789
+        Request.AddQuerystringParam "a", 123
+
+        .Expect(VBA.Join(Auth.SortParameters(VBA.Split(Auth.GetRequestParameters(Client, Request), "&")), "&")).ToEqual "a=123&b=456&c=Howdy!&d=789"
     End With
     
     Set Client = New WebClient
@@ -85,8 +95,8 @@ Public Function Specs() As SpecSuite
     Auth.Timestamp = "123456789"
     
     ExpectedBaseString = "GET" & "&" & _
-        UrlEncode("http://localhost:3000/testing") & "&" & _
-        UrlEncode("a=123&b=456" & _
+        WebHelpers.UrlEncode("http://localhost:3000/testing") & "&" & _
+        WebHelpers.UrlEncode("a=123&b=456" & _
             "&oauth_consumer_key=" & ConsumerKey & _
             "&oauth_nonce=1234&oauth_signature_method=HMAC-SHA1&oauth_timestamp=123456789" & _
             "&oauth_token=" & Token & _

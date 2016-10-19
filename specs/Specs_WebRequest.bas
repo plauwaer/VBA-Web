@@ -79,7 +79,7 @@ Public Function Specs() As SpecSuite
         .Expect(Request.Body).ToEqual "{""A"":123,""B"":""Howdy!""}"
         
         Request.Format = WebFormat.FormUrlEncoded
-        .Expect(Request.Body).ToEqual "A=123&B=Howdy!"
+        .Expect(Request.Body).ToEqual "A=123&B=Howdy%21"
     End With
     
     With Specs.It("Body should be formatted by CustomRequestFormat")
@@ -228,9 +228,9 @@ Public Function Specs() As SpecSuite
         Set Request = New WebRequest
         
         Request.Resource = "{segment}"
-        Request.AddUrlSegment "segment", "$&+,/:;=?@"
+        Request.AddUrlSegment "segment", "&/:;=?@"
         
-        .Expect(Request.FormattedResource).ToEqual "%24%26%2B%2C%2F%3A%3B%3D%3F%40"
+        .Expect(Request.FormattedResource).ToEqual "%26%2F%3A%3B%3D%3F%40"
     End With
     
     With Specs.It("FormattedResource should include querystring parameters")
@@ -263,14 +263,24 @@ Public Function Specs() As SpecSuite
         .Expect(Request.FormattedResource).ToEqual "?A=123&B=456"
     End With
 
-    With Specs.It("FormattedResource should URL encode querystring")
+    With Specs.It("FormattedResource should URL encode querystring with QueryUrlEncoding for non-form-urlencoded")
         Set Request = New WebRequest
     
-        Request.AddQuerystringParam "A B", "$&+,/:;=?@"
+        Request.AddQuerystringParam "A + B", "*~"
         
-        .Expect(Request.FormattedResource).ToEqual "?A+B=%24%26%2B%2C%2F%3A%3B%3D%3F%40"
+        .Expect(Request.FormattedResource).ToEqual "?A%20%2B%20B=%2A%7E"
     End With
     
+    With Specs.It("FormattedResource should URL encode querystring with FormUrlEncoding for form-urlencoded")
+        Set Request = New WebRequest
+        
+        Request.RequestFormat = WebFormat.FormUrlEncoded
+        Request.AddQuerystringParam "A + B", "*~"
+        
+        .Expect(Request.FormattedResource).ToEqual "?A+%2B+B=*%7E"
+    End With
+    
+    ' UserAgent
     ' Cookies
     ' Headers
     ' QuerystringParams
@@ -333,7 +343,7 @@ Public Function Specs() As SpecSuite
         
         .Expect(Request.Cookies.Count).ToEqual 2
         .Expect(Request.Cookies(1)("Key")).ToEqual "A"
-        .Expect(Request.Cookies(2)("Value")).ToEqual "cookie 2"
+        .Expect(Request.Cookies(2)("Value")).ToEqual "cookie%202"
     End With
     
     ' AddHeader

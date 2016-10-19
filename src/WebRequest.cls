@@ -8,7 +8,7 @@ Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = True
 ''
-' WebRequest v4.0.20
+' WebRequest v4.0.22
 ' (c) Tim Hall - https://github.com/VBA-tools/VBA-Web
 '
 ' `WebRequest` is used to create detailed requests
@@ -175,6 +175,23 @@ Public UrlSegments As Dictionary
 ' @type Collection
 ''
 Public Cookies As Collection
+
+''
+' User agent to use with request
+'
+' @example
+' ```VB.net
+' Dim Request As New WebRequest
+' Request.UserAgent = "Mozilla/5.0"
+'
+' ' -> (Header) User-Agent: Mozilla/5.0
+' ```
+'
+' @property UserAgent
+' @type String
+' @default "VBA-Web v#.#.# (https://github.com/VBA-tools/VBA-Web)"
+''
+Public UserAgent As String
 
 ''
 ' Set `RequestFormat`, `ResponseFormat`, and `Content-Type` and `Accept`
@@ -497,6 +514,7 @@ End Property
 ''
 Public Property Get FormattedResource() As String
     Dim web_Segment As Variant
+    Dim web_Encoding As UrlEncodingMode
 
     FormattedResource = Me.Resource
 
@@ -513,7 +531,17 @@ Public Property Get FormattedResource() As String
             FormattedResource = FormattedResource & "&"
         End If
 
-        FormattedResource = FormattedResource & WebHelpers.ConvertToUrlEncoded(Me.QuerystringParams)
+        ' For querystrings, W3C defines form-urlencoded as the required encoding,
+        ' but the treatment of space -> "+" (rather than "%20") can cause issues
+        '
+        ' If the request format is explicitly form-urlencoded, use FormUrlEncoding (space -> "+")
+        ' otherwise, use subset of RFC 3986 and form-urlencoded that should work for both cases (space -> "%20")
+        If Me.RequestFormat = WebFormat.FormUrlEncoded Then
+            web_Encoding = UrlEncodingMode.FormUrlEncoding
+        Else
+            web_Encoding = UrlEncodingMode.QueryUrlEncoding
+        End If
+        FormattedResource = FormattedResource & WebHelpers.ConvertToUrlEncoded(Me.QuerystringParams, EncodingMode:=web_Encoding)
     End If
 End Property
 
@@ -649,7 +677,10 @@ End Sub
 ' @param {Variant} Value
 ''
 Public Sub AddCookie(Key As String, Value As Variant)
-    Me.Cookies.Add WebHelpers.CreateKeyValue(Key, Value)
+    Me.Cookies.Add WebHelpers.CreateKeyValue( _
+        WebHelpers.UrlEncode(Key, EncodingMode:=UrlEncodingMode.CookieUrlEncoding), _
+        WebHelpers.UrlEncode(Value, EncodingMode:=UrlEncodingMode.CookieUrlEncoding) _
+    )
 End Sub
 
 ''
@@ -708,7 +739,7 @@ End Sub
 ''
 Public Sub Prepare()
     ' Add/replace general headers for request
-    SetHeader "User-Agent", WebUserAgent
+    SetHeader "User-Agent", Me.UserAgent
     SetHeader "Content-Type", Me.ContentType
     SetHeader "Accept", Me.Accept
     SetHeader "Content-Length", VBA.CStr(Me.ContentLength)
@@ -727,6 +758,7 @@ Public Function Clone() As WebRequest
     ' Note: Clone underlying for properties with default values
     Clone.Resource = Me.Resource
     Clone.Method = Me.Method
+    Clone.UserAgent = Me.UserAgent
     Clone.Accept = web_pAccept
     Clone.ContentType = web_pContentType
     Clone.ContentLength = web_pContentLength
@@ -782,6 +814,7 @@ Private Sub Class_Initialize()
     ' Set default values
     Me.RequestFormat = WebFormat.Json
     Me.ResponseFormat = WebFormat.Json
+    Me.UserAgent = WebUserAgent
 
     Set Me.Headers = New Collection
     Set Me.QuerystringParams = New Collection
